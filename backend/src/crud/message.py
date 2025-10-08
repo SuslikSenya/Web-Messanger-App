@@ -1,5 +1,8 @@
 import os
 
+from fastapi import WebSocket
+from fastapi.encoders import jsonable_encoder
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -7,6 +10,48 @@ from config import BASE_DIR
 from models.message import Message
 from schemas.message import MessageCreate, MessageUpdate, MessageRead
 from datetime import datetime
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[int, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, user_id: int):
+        await websocket.accept()
+        self.active_connections[user_id] = websocket
+
+    def disconnect(self, user_id: int):
+        self.active_connections.pop(user_id, None)
+
+    async def send_personal_message(self, message: dict, user_id: int):
+        ws = self.active_connections.get(user_id)
+        if ws:
+            payload = {"type": "message", "message": jsonable_encoder(MessageRead.from_orm(message))}
+            await ws.send_json(payload)
+
+    async def send_delete(self, message_id: int, user_id: int):
+        ws = self.active_connections.get(user_id)
+        if ws:
+            payload = {"type": "delete", "message": {"id": message_id}}
+            await ws.send_json(payload)
+
+    async def send_edit(self, message: MessageRead, user_id: int):
+        ws = self.active_connections.get(user_id)
+        if ws:
+            payload = {"type": "edit", "message": jsonable_encoder(message)}
+            await ws.send_json(payload)
+
+    async def send_history(self, messages: list[MessageRead], user_id: int):
+        ws = self.active_connections.get(user_id)
+        if ws:
+            payload = {
+                "type": "history",
+                "messages": jsonable_encoder(messages)
+            }
+            await ws.send_json(payload)
+
+
+manager = ConnectionManager()
 
 
 async def create_message(
@@ -73,4 +118,3 @@ async def delete_message(db: AsyncSession, message_id: int):
 async def get_message_by_id(db: AsyncSession, message_id: int):
     result = await db.execute((select(Message).where(Message.id == message_id)))
     return result.scalar_one_or_none()
-

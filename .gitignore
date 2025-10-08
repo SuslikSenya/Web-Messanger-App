@@ -1,11 +1,25 @@
-# Node / React
-node_modules/
-build/
-.env
-.DS_Store
-
 # Python
 __pycache__/
-*.py[cod]
-venv/
+*.pyc
+*.pyo
+*.db
+*.log
+.venv/
+env/
+
+# Env
 .env
+
+# Uploads / media
+uploads/
+media/
+
+# Node / React
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env
+
+# IDE
+.vscode/
+.idea/

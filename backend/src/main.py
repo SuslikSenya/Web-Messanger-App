@@ -20,6 +20,7 @@ app.include_router(user_router, prefix="/users", tags=["Users"])
 origins = [
     "http://localhost:5173",
     "http://localhost:3000",
+    "http://localhost:3001",
     "http://localhost",
     "http://localhost:8080",
 ]

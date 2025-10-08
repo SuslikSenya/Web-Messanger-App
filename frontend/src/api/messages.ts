@@ -1,5 +1,5 @@
 // src/api/messages.ts
-const BASE_URL = "http://localhost:8000"
+const WS_URL = "ws://localhost:8000/messages/ws/chat"
 
 function getToken(): string | null {
     return localStorage.getItem("access_token")
@@ -26,97 +26,72 @@ export interface EditMessageParams {
     files?: File[]
 }
 
-// === API функции ===
+// === WebSocket клиент ===
+let socket: WebSocket | null = null
+let listeners: ((msg: any) => void)[] = []
 
-export async function fetchMessagesWith(userId: number): Promise<Message[]> {
+export function connectMessagesWS(onMessage: (msg: any) => void) {
     const token = getToken()
     if (!token) throw new Error("No token found")
 
-    const res = await fetch(`${BASE_URL}/messages/${userId}`, {
-        headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-        },
-    })
+    socket = new WebSocket(`${WS_URL}?token=${token}`)
 
-    if (res.status === 401) {
-        window.location.href = "/auth"
-        throw new Error("Unauthorized")
+    socket.onopen = () => {
+        console.log("✅ WebSocket connected")
     }
 
-    if (!res.ok) {
-        const text = await res.text()
-        throw new Error(`Failed to fetch messages: ${res.status} ${text}`)
+    socket.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        listeners.forEach((fn) => fn(data))
     }
 
-    return res.json()
+    socket.onclose = () => {
+        console.log("❌ WebSocket closed")
+        socket = null
+    }
+
+    // подписка конкретного компонента
+    listeners.push(onMessage)
+
+    return () => {
+        listeners = listeners.filter((fn) => fn !== onMessage)
+    }
 }
 
-export async function createMessageApi({
-    receiver_id,
-    text,
-    files = [],
-}: CreateMessageParams): Promise<Message> {
-    const token = getToken()
-    if (!token) throw new Error("No token found")
-
-    const form = new FormData()
-    form.append("receiver_id", String(receiver_id))
-    form.append("text", text)
-    files.forEach((f) => form.append("files", f))
-
-    const res = await fetch(`${BASE_URL}/messages/`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
-        body: form,
+export function fileToBase64(file: File): Promise<{ name: string; content: string }> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+            const base64 = (reader.result as string).split(",")[1]
+            resolve({ name: file.name, content: base64 })
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
     })
-
-    if (!res.ok) throw new Error(`Failed to send message: ${res.statusText}`)
-    return res.json()
 }
 
-export async function editMessageApi(
-    message_id: number,
-    data: EditMessageParams = {}
-): Promise<Message> {
-    const { text, files = [] } = data
-    const token = getToken()
-    if (!token) throw new Error("No token found")
-
-    const form = new FormData()
-    if (text !== undefined) form.append("text", text)
-    if (files.length > 0) {
-        files.forEach((f) => form.append("files", f))
+function sendWS(payload: any) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        throw new Error("WebSocket not connected")
     }
-
-    const res = await fetch(`${BASE_URL}/messages/${message_id}`, {
-        method: "PUT",
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
-        body: form,
-    })
-
-    if (!res.ok) {
-        const txt = await res.text()
-        throw new Error(`Failed to edit message: ${res.status} ${txt}`)
-    }
-    return res.json()
+    socket.send(JSON.stringify(payload))
 }
 
-export async function deleteMessageApi(message_id: number): Promise<{ success: boolean }> {
-    const token = getToken()
-    if (!token) throw new Error("No token found")
+// === API функции через WebSocket ===
 
-    const res = await fetch(`${BASE_URL}/messages/${message_id}`, {
-        method: "DELETE",
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
-    })
+export function fetchMessagesWith(userId: number) {
+    sendWS({ action: "history", other_user_id: userId })
+}
 
-    if (!res.ok) throw new Error("Failed to delete message")
-    return res.json()
+export async function createMessageApi({ receiver_id, text, files }: CreateMessageParams) {
+    const filesData = files ? await Promise.all(files.map(fileToBase64)) : []
+    sendWS({ action: "send", receiver_id, text, files: filesData })
+}
+
+export function editMessageApi(message_id: number, data: EditMessageParams) {
+    sendWS({ action: "edit", id: message_id, ...data })
+}
+
+export function deleteMessageApi(message_id: number) {
+    sendWS({ action: "delete", id: message_id })
 }

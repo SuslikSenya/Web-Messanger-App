@@ -13,13 +13,13 @@ interface UserListProps {
 }
 
 export default function UserList({ onSelectUser, selectedUser }: UserListProps) {
-    const [users, setUsers] = useState < User[] > ([])
+    const [users, setUsers] = useState<User[]>([])
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
         fetchUsers()
             .then((data: User[]) => {
-                console.log("users:", data)
+                // console.log("users:", data)
                 setUsers(data)
             })
             .catch(err => console.error(err))
